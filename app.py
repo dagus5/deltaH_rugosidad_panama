@@ -6,7 +6,6 @@ import math
 import requests
 from math import radians, sin, cos, atan2, sqrt
 from io import BytesIO
-from caas_jupyter_tools import display_dataframe_to_user  # safe in ChatGPT env; ignored outside
 import folium
 from streamlit_folium import st_folium
 
@@ -38,7 +37,6 @@ def fetch_elevations(lat_list, lon_list, batch_size=500):
         r = requests.get(url, params=params, timeout=30)
         r.raise_for_status()
         data = r.json()
-        # API returns {"elevation":[...]} ordered as inputs
         elevations.extend(data.get("elevation", [None]*len(lats)))
     return elevations
 
@@ -93,21 +91,18 @@ if run:
     fmap = folium.Map(location=map_center, zoom_start=8, control_scale=True)
 
     for az in az_list:
-        # Build points every 500 m between 10 and 50 km
         distances_m = list(range(int(start_km*1000), int(end_km*1000)+1, step_m))
         lats, lons = [], []
         for d in distances_m:
             plat, plon = destination_point(lat, lon, az, d)
             lats.append(plat); lons.append(plon)
 
-        # Fetch elevations
         try:
             elev = fetch_elevations(lats, lons)
         except Exception as e:
             st.error(f"Error obteniendo elevaciones para azimut {az}°: {e}")
             continue
 
-        # Compute Δh
         delta_h, h10, h90 = compute_delta_h(elev)
         if delta_h is None:
             st.warning(f"Sin datos de elevación para azimut {az}°")
@@ -123,8 +118,6 @@ if run:
             "Puntos": len(elev),
         }
         results.append(row)
-
-        # Add radial polyline to map (color default)
         pts = list(zip(lats, lons))
         folium.PolyLine(pts, weight=3, opacity=0.7).add_to(fmap)
 
@@ -132,22 +125,18 @@ if run:
         st.stop()
 
     res_df = pd.DataFrame(results).sort_values("Azimut (°)").reset_index(drop=True)
-
     st.subheader("Resultados por azimut")
     st.dataframe(res_df, use_container_width=True)
 
-    # Summary
     st.markdown("**Resumen (promedios):**")
     st.write({
         "Δh promedio (m)": round(res_df["Δh (m)"].mean(), 2),
         "ΔF promedio (dB)": round(res_df["ΔF (dB)"].mean(), 2),
     })
 
-    # Map
     folium.Marker(location=map_center, tooltip="Transmisor").add_to(fmap)
     st_folium(fmap, width=None, height=500)
 
-    # Downloads
     def to_excel_bytes(df):
         from openpyxl import Workbook
         from openpyxl.utils.dataframe import dataframe_to_rows
@@ -156,7 +145,6 @@ if run:
         ws.title = "DeltaH"
         for r in dataframe_to_rows(df, index=False, header=True):
             ws.append(r)
-        # Add note about norm
         ws["G1"] = "Δh según Norma FM Panamá: Δh = h10 - h90 (10–50 km, cada 500 m)"
         ws["G2"] = "Corrección ΔF = 1.9 - 0.03*Δh*(1 + f/300)"
         out = BytesIO()
@@ -169,7 +157,4 @@ if run:
     st.download_button("⬇️ Descargar CSV", data=csv_bytes, file_name="deltaH_resultados.csv", mime="text/csv")
     st.download_button("⬇️ Descargar Excel", data=xlsx_bytes, file_name="deltaH_resultados.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
-    st.info("Nota: Si deseas ver las alturas muestreadas por punto para un azimut, puedo habilitar una tabla detallada con elevación vs. distancia.")
-
-# Footer note about the norm
 st.caption("Cálculo conforme a la Norma Técnica de Radiodifusión Analógica en FM (Panamá): Δh = h10 - h90 entre 10–50 km; ΔF = 1.9 - 0.03Δh(1+f/300).")
